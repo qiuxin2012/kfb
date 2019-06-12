@@ -19,6 +19,8 @@ num_thr = 3
 image_size = piece_size = 320
 scale = 20
 
+image_count = -1
+
 overlap = image_size / 2
 class_map = "Background,0,ASC-H,1,ASC-US,2,LSIL,3,HSIL,4,AGC-NOS,5,AGC,6,AIS,7,AC,8,SCC,9,Germ,10,Candida,11,Trichomonad,12,Herpes,13,Actinomyces,14,Unidentified,0,Streptococcus,0"
 dicts = class_map.split(',')
@@ -146,7 +148,8 @@ def cut_one_image(src, dst, reader, start_x, start_y, w, h):
             y = thr_idx * col_per_thr
             img = origin_img[:, y:y + col_per_thr]
 
-            process = Process(target=cut_per_thr, args=(img, col_per_thr, roi_info, dst, args.only_label, lock))
+            # process = Process(target=cut_per_thr, args=(img, col_per_thr, roi_info, dst, args.only_label, lock))
+            process = Process(target=cut_per_thr, args=(img, dst))
 
             procs.append(process)
             process.start()
@@ -158,13 +161,14 @@ def cut_one_image(src, dst, reader, start_x, start_y, w, h):
         print("one cut elapse is ---> ", time.time() - s)
 
 
-def cut_per_thr(img, col_per_thr, roi_info, output, flag, lock):
+# def cut_per_thr(img, col_per_thr, roi_info, output, flag, lock):
+def cut_per_thr(img, output):
 
     print("region shape is --> ", img.shape)
 
     x = y = 0
-    while y + piece_size < col_per_thr:
-        while x + piece_size < col_per_thr:
+    while y + piece_size < img.shape[1]:
+        while x + piece_size < img.shape[0]:
             region = img[x:x + piece_size, y:y + piece_size]
 
             # if not flag:
@@ -179,6 +183,8 @@ def cut_per_thr(img, col_per_thr, roi_info, output, flag, lock):
 
             streaming_image_producer.image_enqueue(fname, region)
 
+            global image_count
+            image_count += 1
             # lock.acquire()
             # try:
             #     with open('test_img_label.txt', 'a+') as f :
@@ -212,15 +218,16 @@ if __name__ == '__main__':
     print ("len is --> ", len(src_dst))
     print(src_dst)
 
-    for num in range(len(src_dst)):
-        dest_dir = os.path.abspath(os.path.join(src_dst[num][1], os.path.splitext(os.path.basename(src_dst[num][0]))[0]))
-        print (dest_dir)
-        if not os.path.exists(dest_dir):
-            print(dest_dir, "  not exist")
-            os.makedirs(dest_dir)
+    # for num in range(len(src_dst)):
+    #     dest_dir = os.path.abspath(os.path.join(src_dst[num][1], os.path.splitext(os.path.basename(src_dst[num][0]))[0]))
+    #     print (dest_dir)
+    #     if not os.path.exists(dest_dir):
+    #         print(dest_dir, "  not exist")
+    #         os.makedirs(dest_dir)
 
     # time.sleep(60)
     for num in range(len(src_dst)):
+
         src = src_dst[num][0]
         dst_root = src_dst[num][1]
 
@@ -233,7 +240,17 @@ if __name__ == '__main__':
         r.ReadInfo(src)
         w = r.getWidth()
         h = r.getHeight()
+
+        global image_count
+        image_count = 0
+
         cut_one_image(src, dst, r, 0, 0, w, h)
+
+        import redis
+        from utils.helpers import settings
+        DB = redis.StrictRedis(host=settings.REDIS_HOST,
+                               port=settings.REDIS_PORT, db=settings.REDIS_DB)
+        DB.lpush('count-kfb', (src, image_count))
 
 
 

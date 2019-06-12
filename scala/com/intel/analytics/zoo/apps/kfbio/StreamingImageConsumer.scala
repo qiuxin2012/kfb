@@ -115,19 +115,19 @@ object StreamingImageConsumer {
           //            logger.info(s"image: ${path}")
           //            ImageFeature.apply(bytes, null, path)
         }
-        logger.info(s"process ended")
+//        logger.info(s"process ended")
 
         //        val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
-        batchImage.foreach {
+        val rec = batchImage.map {
           b => {
             val output = model.forward(b._2.resize(1, 3, 224, 224))
             val tensor = output.toTensor[Float]
-            logger.info(s"predicting ------")
-            logger.info(tensor.valueAt(1).toString)
-            logger.info(b._1, tensor.valueAt(1), tensor.valueAt(2))
 
+            logger.info(b._1, tensor.valueAt(1), tensor.valueAt(2))
+            (b._1, tensor.valueAt(1), tensor.valueAt(2))
           }
-        }
+        }.count()
+
         logger.info(s"predict ended")
         //        imageTensor.grouped(batchSize).flatMap { batch =>
         //          val size = batchImage

@@ -231,10 +231,11 @@ if __name__ == '__main__':
         src = src_dst[num][0]
         dst_root = src_dst[num][1]
 
-        dst = os.path.abspath(os.path.join(dst_root, os.path.splitext(os.path.basename(src))[0]))
-        if not os.path.exists(dst):
-            os.makedirs(dst)
-        print("dst is --> ", dst)
+        dst = os.path.splitext(os.path.basename(src))[0]
+        # dst = os.path.abspath(os.path.join(dst_root, os.path.splitext(os.path.basename(src))[0]))
+        # if not os.path.exists(dst):
+        #     os.makedirs(dst)
+        # print("dst is --> ", dst)
         # time.sleep(60)
         r = reader()
         r.ReadInfo(src)
@@ -250,6 +251,8 @@ if __name__ == '__main__':
         DB = redis.StrictRedis(host=settings.REDIS_HOST,
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
         DB.lpush('count-kfb', (src + '|' + str(image_count)))
+        print("image cnt is -->", image_count)
+        time.sleep(3600)
 
 
 

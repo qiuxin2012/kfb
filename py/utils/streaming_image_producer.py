@@ -26,7 +26,7 @@ def image_enqueue(fname, img, label=None):
     img_encoded = helpers.base64_encode_image(img)
     d = {"id": str(k), "path": fname, "image": img_encoded}
     DB.xadd(settings.IMAGE_STREAMING, d)
-    print("Push to redis %d ms" % int(round((time.time() - start_time) * 1000)))
+    # print("Push to redis %d ms" % int(round((time.time() - start_time) * 1000)))
 
     # with open(image_path, "rb") as imageFile:
     #     # generate an ID for the classification then add the

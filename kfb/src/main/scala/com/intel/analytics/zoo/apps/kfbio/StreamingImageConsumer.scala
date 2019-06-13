@@ -17,7 +17,6 @@
 package com.intel.analytics.zoo.apps.kfbio
 
 import com.intel.analytics.bigdl.nn.Module
-import com.intel.analytics.bigdl.tensor.Tensor
 
 import com.intel.analytics.bigdl.numeric.NumericFloat
 
@@ -25,6 +24,7 @@ import com.intel.analytics.zoo.common.NNContext
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.{DataFrame, SparkSession}
+
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
 
 import scopt.OptionParser
@@ -32,7 +32,7 @@ import com.intel.analytics.zoo.apps.kfbio.utils.ImageProcessing
 
 
 case class RedisParams(modelPath: String = "",
-                       weight: String = "",
+                       outputPath: String = "",
                        defPath: String = "",
                        batchSize: Int = 4,
                        isInt8: Boolean = false,
@@ -58,6 +58,9 @@ object StreamingImageConsumer {
     //      opt[String]('w', "weight")
     //        .text("The path to the int8 ResNet50 model weight")
     //        .action((v, p) => p.copy(weight = v))
+    opt[String]('o', "textPath")
+      .text("The path to write small text file")
+      .action((v, p) => p.copy(outputPath = v))
     opt[Int]('b', "batchSize")
       .text("Batch size of input data")
       .action((v, p) => p.copy(batchSize = v))
@@ -78,6 +81,7 @@ object StreamingImageConsumer {
 
     val batchSize = param.batchSize
     val model = Module.loadCaffeModel[Float](param.defPath, param.modelPath)
+    val outputPath = param.outputPath
 
     val spark = SparkSession
       .builder
@@ -86,6 +90,7 @@ object StreamingImageConsumer {
       .config("spark.redis.port", "6379")
       .getOrCreate()
 
+    import spark.sqlContext.implicits._
     val images = spark
       .readStream
       .format("redis")
@@ -103,51 +108,62 @@ object StreamingImageConsumer {
       .writeStream
       .foreachBatch { (batchDF: DataFrame, batchId: Long) => {
         logger.info(s"Get batch")
-        val batchImage = batchDF.rdd.map { image =>
-          val bytes = java.util
-            .Base64.getDecoder.decode(image.getAs[String]("image"))
 
-          val uri = image.getAs[String]("path")
+        if (!batchDF.isEmpty) {
+          logger.info(s"valid message detected")
+          val batchImage = batchDF.rdd.map { image =>
+            val bytes = java.util
+              .Base64.getDecoder.decode(image.getAs[String]("image"))
 
-          (uri, ImageProcessing.preprocessBytes(bytes))
+            val uri = image.getAs[String]("path")
 
-          //            val path = image.getAs[String]("path")
-          //            logger.info(s"image: ${path}")
-          //            ImageFeature.apply(bytes, null, path)
-        }
-//        logger.info(s"process ended")
+            (uri, ImageProcessing.preprocessBytes(bytes))
 
-        //        val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
-        val rec = batchImage.map {
-          b => {
-            val output = model.forward(b._2.resize(1, 3, 224, 224))
-            val tensor = output.toTensor[Float]
-
-            logger.info(b._1, tensor.valueAt(1), tensor.valueAt(2))
-            (b._1, tensor.valueAt(1), tensor.valueAt(2))
+            //            val path = image.getAs[String]("path")
+            //            logger.info(s"image: ${path}")
+            //            ImageFeature.apply(bytes, null, path)
           }
-        }.count()
+          //        logger.info(s"process ended")
 
-        logger.info(s"predict ended")
-        //        imageTensor.grouped(batchSize).flatMap { batch =>
-        //          val size = batchImage
-        //          (0 until size).foreach { i =>
-        //            inputTensor.select(1, i + 1).copy(batch(i)._2)
-        //          }
-        //          val start = System.nanoTime()
-        //          logger.info(s"Begin Predict")
-        //          val output = model.forward(inputTensor).toTensor[Float]
-        //          //        val res2 = res1
-        //          val end = System.nanoTime()
-        //          logger.info(s"elapsed ${(end - start) / 1e9} s")
-        //          (0 until size).map { i =>
-        //            (batch(i)._1, output.valueAt(i + 1, 1),
-        //              output.valueAt(i + 1, 2))
-        //
-        //            logger.info(batch(i)._1, output.valueAt(i + 1, 1),
-        //              output.valueAt(i + 1, 2))
-        //          }
-        //        }
+          //        val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
+          val recDF = batchImage.map {
+            b => {
+              val output = model.forward(b._2.resize(1, 3, 224, 224))
+              val tensor = output.toTensor[Float]
+
+//              logger.info(b._1, tensor.valueAt(1), tensor.valueAt(2))
+              (b._1, tensor.valueAt(1).toString + "|" + tensor.valueAt(2).toString)
+            }
+          }.toDF("path", "res")
+
+          logger.info("output Path is " + outputPath)
+          if (outputPath != null) {
+            logger.info("start writing file")
+            recDF.write.partitionBy("path").text(outputPath)
+          }
+          logger.info(recDF.count())
+
+          logger.info(s"predict ended")
+          //        imageTensor.grouped(batchSize).flatMap { batch =>
+          //          val size = batchImage
+          //          (0 until size).foreach { i =>
+          //            inputTensor.select(1, i + 1).copy(batch(i)._2)
+          //          }
+          //          val start = System.nanoTime()
+          //          logger.info(s"Begin Predict")
+          //          val output = model.forward(inputTensor).toTensor[Float]
+          //          //        val res2 = res1
+          //          val end = System.nanoTime()
+          //          logger.info(s"elapsed ${(end - start) / 1e9} s")
+          //          (0 until size).map { i =>
+          //            (batch(i)._1, output.valueAt(i + 1, 1),
+          //              output.valueAt(i + 1, 2))
+          //
+          //            logger.info(batch(i)._1, output.valueAt(i + 1, 1),
+          //              output.valueAt(i + 1, 2))
+          //          }
+          //        }
+        }
       }
     }.start()
     query.awaitTermination()

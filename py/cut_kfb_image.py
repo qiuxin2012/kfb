@@ -19,8 +19,6 @@ num_thr = 3
 image_size = piece_size = 320
 scale = 20
 
-image_count = -1
-
 overlap = image_size / 2
 class_map = "Background,0,ASC-H,1,ASC-US,2,LSIL,3,HSIL,4,AGC-NOS,5,AGC,6,AIS,7,AC,8,SCC,9,Germ,10,Candida,11,Trichomonad,12,Herpes,13,Actinomyces,14,Unidentified,0,Streptococcus,0"
 dicts = class_map.split(',')
@@ -183,8 +181,9 @@ def cut_per_thr(img, output):
 
             streaming_image_producer.image_enqueue(fname, region)
 
-            global image_count
-            image_count += 1
+            # global image_count
+            # image_count += 1
+
             # lock.acquire()
             # try:
             #     with open('test_img_label.txt', 'a+') as f :
@@ -242,9 +241,11 @@ if __name__ == '__main__':
         w = r.getWidth()
         h = r.getHeight()
 
-        image_count = 0
+        # image_count = 0
 
         cut_one_image(src, dst, r, 0, 0, w, h)
+
+        image_count = (w // image_size) * (h // num_thr // image_size) * num_thr
 
         import redis
         from utils.helpers import settings

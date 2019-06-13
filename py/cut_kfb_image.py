@@ -19,6 +19,9 @@ num_thr = 3
 image_size = piece_size = 320
 scale = 20
 
+lock = Lock()
+
+
 overlap = image_size / 2
 class_map = "Background,0,ASC-H,1,ASC-US,2,LSIL,3,HSIL,4,AGC-NOS,5,AGC,6,AIS,7,AC,8,SCC,9,Germ,10,Candida,11,Trichomonad,12,Herpes,13,Actinomyces,14,Unidentified,0,Streptococcus,0"
 dicts = class_map.split(',')
@@ -135,6 +138,7 @@ def cut_one_image(src, dst, reader, start_x, start_y, w, h):
         split_x = h // 2
         cut_one_image(src, dst, reader, start_x, start_y, w, split_x)
         cut_one_image(src, dst, reader, start_x + split_x, start_y, w, split_x)
+
     else:
         col_per_thr = w // num_thr
         s = time.time()
@@ -147,7 +151,7 @@ def cut_one_image(src, dst, reader, start_x, start_y, w, h):
             img = origin_img[:, y:y + col_per_thr]
 
             # process = Process(target=cut_per_thr, args=(img, col_per_thr, roi_info, dst, args.only_label, lock))
-            process = Process(target=cut_per_thr, args=(img, dst))
+            process = Process(target=cut_per_thr, args=(img, dst, start_x, y))
 
             procs.append(process)
             process.start()
@@ -157,10 +161,11 @@ def cut_one_image(src, dst, reader, start_x, start_y, w, h):
             process.join()
             # for x in range(h // num_thr):
         print("one cut elapse is ---> ", time.time() - s)
+    return
 
 
 # def cut_per_thr(img, col_per_thr, roi_info, output, flag, lock):
-def cut_per_thr(img, output):
+def cut_per_thr(img, output, start_x, start_y):
 
     print("region shape is --> ", img.shape)
 
@@ -172,7 +177,9 @@ def cut_per_thr(img, output):
             # if not flag:
                 # print("output x y is ---> ", output, x, y)
 
-            fname = "{}/{}_{}".format(output, x, y)
+            fname = "{}/{}_{}".format(output, x + start_x, y + start_y)
+
+
             # cv2.imwrite(fname, region)
 
             #label = GetLabel(roi_info, x, y)
@@ -190,6 +197,11 @@ def cut_per_thr(img, output):
             #         f.write(fname + ' ' + str(label) + '\n')
             # finally:
             #     lock.release()
+            # lock.acquire()
+            # with open('/tmp/233.txt', 'a+') as f:
+            #     f.write(fname + '\n')
+            # lock.release()
+
             x = x + piece_size
         y = y + piece_size
         x = 0
@@ -197,6 +209,14 @@ def cut_per_thr(img, output):
         # time.sleep(3)
 #kfb_test_path = '/home/ftian/dl_solutions-kfb/data/test'
 #kfb_test_img_path = '/home/ftian/dl_solutions-kfb/data/test_img_overlap_image_size'
+
+
+def get_kfb_pieces(w, h):
+    piece = 1
+    while w * h > 200000000:
+        h //= 2
+        piece *= 2
+    return piece
 
 
 if __name__ == '__main__':
@@ -208,7 +228,7 @@ if __name__ == '__main__':
                 src_dst.append([os.path.abspath(os.path.join(root, file)), os.path.abspath(args.kfb_test_img_path)])
 
     procs = []
-    lock = Lock()
+    # lock = Lock()
     
     # for idx in range(len(src_dst)):
     #     data = src_dst[idx * set_num:(idx + 1) * set_num]
@@ -245,7 +265,13 @@ if __name__ == '__main__':
 
         cut_one_image(src, dst, r, 0, 0, w, h)
 
-        image_count = (w // image_size) * (h // num_thr // image_size) * num_thr
+        print("col number is ", w // image_size)
+        print("row per thr is ", h // num_thr)
+        print("row per thr is ", h // num_thr)
+
+        pieces = get_kfb_pieces(w, h)
+        image_count = (h // pieces // image_size) * pieces \
+                      * (w // num_thr // image_size) * num_thr
 
         import redis
         from utils.helpers import settings

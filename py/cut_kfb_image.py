@@ -179,7 +179,7 @@ def cut_per_thr(img, output):
 
             #label = GetLabel(roi_info, x, y)
 
-            region = cv2.imencode(".png", region)[1]
+            region = cv2.imencode(".jpg", region)[1]
 
             streaming_image_producer.image_enqueue(fname, region)
 
@@ -241,7 +241,6 @@ if __name__ == '__main__':
         w = r.getWidth()
         h = r.getHeight()
 
-        global image_count
         image_count = 0
 
         cut_one_image(src, dst, r, 0, 0, w, h)
@@ -250,7 +249,7 @@ if __name__ == '__main__':
         from utils.helpers import settings
         DB = redis.StrictRedis(host=settings.REDIS_HOST,
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
-        DB.lpush('count-kfb', (src, image_count))
+        DB.lpush('count-kfb', (src + '|' + str(image_count)))
 
 
 

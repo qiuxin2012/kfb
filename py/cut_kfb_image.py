@@ -172,7 +172,7 @@ def cut_per_thr(img, output):
             # if not flag:
                 # print("output x y is ---> ", output, x, y)
 
-            fname = "{}/{}_{}.jpg".format(output, x, y)
+            fname = "{}/{}_{}".format(output, x, y)
             # cv2.imwrite(fname, region)
 
             #label = GetLabel(roi_info, x, y)

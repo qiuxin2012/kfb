@@ -31,7 +31,6 @@ import org.apache.spark.sql.types.{StringType, StructField, StructType}
 import scopt.OptionParser
 import com.intel.analytics.zoo.apps.kfbio.utils.ImageProcessing
 import com.intel.analytics.zoo.pipeline.api.keras.layers.utils.EngineRef
-import org.apache.spark.SparkConf
 import org.apache.spark.rdd.ZippedPartitionsWithLocalityRDD
 
 
@@ -101,6 +100,7 @@ object StreamingImageConsumer {
     }
     val bcModel = ModelBroadcast[Float]().broadcast(sc, model)
     val cachedModel = sc.range(1, 100, EngineRef.getNodeNumber())
+      .coalesce(EngineRef.getNodeNumber())
     .mapPartitions(v => Iterator.single(bcModel.value(false, true))).cache()
     cachedModel.count()
 

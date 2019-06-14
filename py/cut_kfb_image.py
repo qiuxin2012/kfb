@@ -220,6 +220,7 @@ def get_kfb_pieces(w, h):
 
 
 if __name__ == '__main__':
+
     args = parse_args()
     src_dst = []
     for root, _, files in os.walk(args.kfb_test_path):
@@ -246,7 +247,7 @@ if __name__ == '__main__':
 
     # time.sleep(60)
     for num in range(len(src_dst)):
-
+        start_time = time.time()
         src = src_dst[num][0]
         dst_root = src_dst[num][1]
 
@@ -271,7 +272,7 @@ if __name__ == '__main__':
 
         pieces = get_kfb_pieces(w, h)
         image_count = (h // pieces // image_size) * pieces \
-                      * (w // num_thr // image_size) * num_thr
+            * (w // num_thr // image_size) * num_thr
 
         import redis
         from utils.helpers import settings
@@ -279,6 +280,7 @@ if __name__ == '__main__':
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
         DB.lpush('count-kfb', (src + '|' + str(image_count)))
         print("image cnt is -->", image_count)
+        print("total time elapse of one kfb cut is ", time.time() - start_time)
         time.sleep(3600)
 
 

@@ -2,6 +2,7 @@ import argparse
 from pyspark import SparkContext
 
 import time
+import os
 
 
 pos_neg_threshold = 0.5
@@ -40,6 +41,11 @@ if __name__ == "__main__":
 
     sc = SparkContext()
     # a = sc.parallelize([('a', 0.3, 0.7), ('a', 0.2, 0.8), ('a', 1.0, 0.0)])
+    #
+    # print (a.count())
+    #
+    # print (a.count())
+    #
     # b = get_result(a)
 
     parser = argparse.ArgumentParser()
@@ -55,19 +61,27 @@ if __name__ == "__main__":
     DB = redis.StrictRedis(host=settings.REDIS_HOST,
                            port=settings.REDIS_PORT, db=settings.REDIS_DB)
 
+    # DB.lpush('count-kfb', ("dfsdf|adff"))
     while 1:
         while DB.llen('count-kfb') > 0:
-            fname, total_count = DB.lpop()
 
+            rec = DB.lpop('count-kfb').decode().split("|")
+            # print(rec.decode())
+            fname, total_count = rec[0], rec[1]
+
+            print("file name is -> ", fname, "total_count is -> ", total_count)
+
+            file_path = os.path.join(file_path, fname)
             cnt_rdd = sc.textFile(file_path)
             current_count = cnt_rdd.count()
+            print("current cnt is -> ", current_count, "   total cnt is -> ", total_count)
             if total_count == current_count:
                 # reduce to get the result
                 btime = time.time()
                 get_result(cnt_rdd)
                 print("reduce time elapsed ", time.time() - btime)
             else:
-                DB.lpush('count-kfb', (fname, total_count))
+                DB.lpush('count-kfb', (fname + "|" + total_count))
             time.sleep(5)
         print("queue is empty")
         time.sleep(60)

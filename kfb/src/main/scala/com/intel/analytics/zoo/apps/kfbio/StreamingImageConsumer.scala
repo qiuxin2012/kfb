@@ -129,6 +129,9 @@ object StreamingImageConsumer {
       .foreachBatch { (batchDF: DataFrame, batchId: Long) => {
         logger.info(s"Get batch $batchId")
 
+        logger.info(s"num of partition: ${batchDF.rdd.partitions.size}")
+        logger.info(s"${batchDF.rdd.partitions.mkString("  ")}")
+
         val batchImage = batchDF.rdd.map { image =>
           val bytes = java.util
             .Base64.getDecoder.decode(image.getAs[String]("image"))

@@ -280,7 +280,7 @@ if __name__ == '__main__':
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
         DB.lpush('count-kfb', (src + '|' + str(image_count)))
         print("image cnt is -->", image_count)
-        print("total time elapse of one kfb cut is ", time.time() - start_time)
+        print("Current time ", time.time(), " ---total time elapse of one kfb cut is ", time.time() - start_time)
         time.sleep(3600)
 
 

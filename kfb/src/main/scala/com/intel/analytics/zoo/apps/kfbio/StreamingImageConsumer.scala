@@ -127,75 +127,49 @@ object StreamingImageConsumer {
     val query = images
       .writeStream
       .foreachBatch { (batchDF: DataFrame, batchId: Long) => {
-        logger.info(s"Get batch")
+        logger.info(s"Get batch $batchId")
 
-        if (!batchDF.isEmpty) {
-          logger.info(s"valid message detected")
-          val batchImage = batchDF.rdd.map { image =>
-            val bytes = java.util
-              .Base64.getDecoder.decode(image.getAs[String]("image"))
+        val batchImage = batchDF.rdd.map { image =>
+          val bytes = java.util
+            .Base64.getDecoder.decode(image.getAs[String]("image"))
 
-            val uri = image.getAs[String]("path")
+          val uri = image.getAs[String]("path")
 
-            (uri, ImageProcessing.preprocessBytes(bytes))
-
-            //            val path = image.getAs[String]("path")
-            //            logger.info(s"image: ${path}")
-            //            ImageFeature.apply(bytes, null, path)
-          }
-          //        logger.info(s"process ended")
-
-          //        val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
-          val result = batchImage.mapPartitions { imageTensor =>
-            val localModel = bcModel.value()
-            val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
-            imageTensor.grouped(batchSize).flatMap { batch =>
-              val size = batch.size
-              val startCopy = System.nanoTime()
-              (0 until size).toParArray.foreach { i =>
-                inputTensor.select(1, i + 1).copy(batch(i)._2)
-              }
-              logger.info(s"Copy elapsed ${(System.nanoTime() - startCopy) / 1e9} s")
-              val start = System.nanoTime()
-              val output = localModel.forward(inputTensor).toTensor[Float]
-              val end = System.nanoTime()
-              logger.info(s"elapsed ${(end - start) / 1e9} s")
-              (0 until size).map { i =>
-                (batch(i)._1.split("\\/")(0),
-                  batch(i)._1 + "|" + output.valueAt(i + 1, 1) + "|" +
-                  output.valueAt(i + 1, 2))
-              }
-            }
-          }.collect()
-
-          result.groupBy(_._1).foreach{ results =>
-            File.saveBytes((results._2.map(_._2).mkString("\n") + "\n").getBytes(StandardCharsets.UTF_8),
-            s"$outputPath/${results._1}/part_${batchId}")
-          }
-
-
-
-          logger.info(s"predict ended $batchId")
-          //        imageTensor.grouped(batchSize).flatMap { batch =>
-          //          val size = batchImage
-          //          (0 until size).foreach { i =>
-          //            inputTensor.select(1, i + 1).copy(batch(i)._2)
-          //          }
-          //          val start = System.nanoTime()
-          //          logger.info(s"Begin Predict")
-          //          val output = model.forward(inputTensor).toTensor[Float]
-          //          //        val res2 = res1
-          //          val end = System.nanoTime()
-          //          logger.info(s"elapsed ${(end - start) / 1e9} s")
-          //          (0 until size).map { i =>
-          //            (batch(i)._1, output.valueAt(i + 1, 1),
-          //              output.valueAt(i + 1, 2))
-          //
-          //            logger.info(batch(i)._1, output.valueAt(i + 1, 1),
-          //              output.valueAt(i + 1, 2))
-          //          }
-          //        }
+          (uri, ImageProcessing.preprocessBytes(bytes))
         }
+
+        val result = batchImage.mapPartitions { imageTensor =>
+          val localModel = bcModel.value()
+          val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
+          imageTensor.grouped(batchSize).flatMap { batch =>
+            val size = batch.size
+            val startCopy = System.nanoTime()
+            (0 until size).toParArray.foreach { i =>
+              inputTensor.select(1, i + 1).copy(batch(i)._2)
+            }
+            logger.info(s"Copy elapsed ${(System.nanoTime() - startCopy) / 1e9} s")
+            val start = System.nanoTime()
+            val output = localModel.forward(inputTensor).toTensor[Float]
+            val end = System.nanoTime()
+            logger.info(s"elapsed ${(end - start) / 1e9} s")
+            (0 until size).map { i =>
+              (batch(i)._1.split("\\/")(0),
+                batch(i)._1 + "|" + output.valueAt(i + 1, 1) + "|" +
+                  output.valueAt(i + 1, 2))
+            }
+          }
+        }.collect()
+
+        if(!result.isEmpty) {
+          result.groupBy(_._1).foreach { results =>
+            logger.info(s"writing ${results._2.length} result to " +
+              s"$outputPath/${results._1}/part_${batchId}")
+            File.saveBytes((results._2.map(_._2).mkString("\n") + "\n").getBytes(StandardCharsets.UTF_8),
+              s"$outputPath/${results._1}/part_${batchId}")
+          }
+        }
+
+        logger.info(s"predict ended $batchId")
       }
     }.start()
     query.awaitTermination()

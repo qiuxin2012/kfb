@@ -30,6 +30,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
 import scopt.OptionParser
 import com.intel.analytics.zoo.apps.kfbio.utils.ImageProcessing
+import com.intel.analytics.zoo.pipeline.api.keras.layers.utils.EngineRef
 import org.apache.spark.SparkConf
 
 
@@ -116,6 +117,7 @@ object StreamingImageConsumer {
       .format("redis")
       .option("stream.keys", "image_stream")
       .option("stream.read.batch.size", batchSize.toString)
+      .option("stream.parallelism", EngineRef.getNodeNumber())
       .schema(StructType(Array(
         StructField("id", StringType),
         StructField("path", StringType),

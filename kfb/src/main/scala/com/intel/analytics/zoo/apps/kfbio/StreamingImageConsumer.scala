@@ -32,6 +32,7 @@ import scopt.OptionParser
 import com.intel.analytics.zoo.apps.kfbio.utils.ImageProcessing
 import com.intel.analytics.zoo.pipeline.api.keras.layers.utils.EngineRef
 import org.apache.spark.SparkConf
+import org.apache.spark.rdd.ZippedPartitionsWithLocalityRDD
 
 
 case class RedisParams(modelPath: String = "",
@@ -99,6 +100,9 @@ object StreamingImageConsumer {
       loadedModel.evaluate()
     }
     val bcModel = ModelBroadcast[Float]().broadcast(sc, model)
+    val cachedModel = sc.range(1, 100, EngineRef.getNodeNumber())
+    .mapPartitions(v => Iterator.single(bcModel.value(false, true))).cache()
+    cachedModel.count()
 
     val outputPath = param.outputPath
 
@@ -132,7 +136,7 @@ object StreamingImageConsumer {
         logger.info(s"Get batch $batchId")
 
         logger.info(s"num of partition: ${batchDF.rdd.partitions.size}")
-        logger.info(s"${batchDF.rdd.partitions.mkString("  ")}")
+        logger.info(s"${batchDF.rdd.partitions.map(_.index).mkString("  ")}")
 
         val batchImage = batchDF.rdd.map { image =>
           val bytes = java.util
@@ -143,8 +147,8 @@ object StreamingImageConsumer {
           (uri, ImageProcessing.preprocessBytes(bytes))
         }
 
-        val result = batchImage.mapPartitions { imageTensor =>
-          val localModel = bcModel.value()
+        val result = ZippedPartitionsWithLocalityRDD(batchImage, cachedModel){ (imageTensor, modelIter) =>
+          val localModel = modelIter.next()
           val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
           imageTensor.grouped(batchSize).flatMap { batch =>
             val size = batch.size

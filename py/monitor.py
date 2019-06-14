@@ -86,12 +86,12 @@ if __name__ == "__main__":
 
             # print(rec.decode())
             fname, total_count = kv[0], kv[1]
-            DB.lpush('count-kfb', (fname + "|" + total_count))
+            DB.rpush('count-kfb', (fname + "|" + total_count))
             total_count = int(total_count)
 
             dir_path = os.path.join(file_path, fname)
             print("file name is -> ", fname, "total_count is -> ", total_count)
-
+            print("hdfs dir path is -> ", dir_path)
             cnt_rdd = sc.textFile(dir_path)
             current_count = cnt_rdd.count()
             print("current cnt is -> ", current_count, "   total cnt is -> ", total_count)
@@ -100,13 +100,13 @@ if __name__ == "__main__":
                 btime = time.time()
                 get_result(cnt_rdd)
                 print("reduce time elapsed ", time.time() - btime)
-                DB.lpop('count-kfb')
+                DB.rpop('count-kfb')
             else:
                 print("write not ends")
                 print(type(total_count), type(current_count))
 
 
-            time.sleep(30)
+            time.sleep(5)
         print("queue is empty")
         time.sleep(60)
 

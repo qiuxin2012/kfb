@@ -6,16 +6,19 @@ import argparse
 import sys
 import time
 
-from utils import streaming_image_producer
+from utils import streaming_image_producer, copy_file
+
 
 from multiprocessing import cpu_count
 from multiprocessing import Process, Lock
-num_thr = 3
+num_thr = 4
+num_thr_cut = 1
 # try:
 #     num_thr = os.environ["OMP_NUM_THREADS"]
 # except:
 #     num_thr = cpu_count()
 
+limit_size = 200000000
 image_size = piece_size = 320
 scale = 20
 
@@ -129,29 +132,39 @@ def parse_args():
     return args
 
 
-def cut_one_image(src, dst, reader, start_x, start_y, w, h):
+def cut_one_image(src, dst, start_x, start_y, w, h, thr_idx):
 
-    print("width and height --> ", w, h)
 
-    if w * h > 200000000:
+    rr = reader()
+    rr.ReadInfo(src)
+    ww = rr.getWidth() // num_thr
+    hh = rr.getHeight()
+    start_yy = thr_idx * (ww // num_thr)
+    end_yy = (thr_idx + 1) * (ww // num_thr)
+    start_xx = start_x
+
+    if w * h > limit_size:
         print("splited img")
         split_x = h // 2
-        cut_one_image(src, dst, reader, start_x, start_y, w, split_x)
-        cut_one_image(src, dst, reader, start_x + split_x, start_y, w, split_x)
+        cut_one_image(src, dst, start_x, start_y, w, split_x, thr_idx)
+        cut_one_image(src, dst, start_x + split_x, start_y, w, split_x,thr_idx)
 
     else:
-        col_per_thr = w // num_thr
+        print("start x, y  --> ", start_x, start_y)
+        col_per_thr = w // num_thr_cut
         s = time.time()
-        origin_img = reader.ReadRoi(start_x, start_y, w, h, scale)
+        origin_img = rr.ReadRoi(start_x, start_y, w, h, scale)
 
         roi_info = GetRoiInfo(src)
         print("read time elapse is ", time.time() - s)
-        for thr_idx in range(num_thr):
+        for thr_idx in range(num_thr_cut):
             y = thr_idx * col_per_thr
-            img = origin_img[:, y:y + col_per_thr]
 
+            img = origin_img[:, y:y + col_per_thr]
+            print("origin shape is --> ", origin_img.shape)
+            print("region shape is --> ", img.shape)
             # process = Process(target=cut_per_thr, args=(img, col_per_thr, roi_info, dst, args.only_label, lock))
-            process = Process(target=cut_per_thr, args=(img, dst, start_x, y))
+            process = Process(target=cut_per_thr, args=(img, dst, start_x, start_y + y))
 
             procs.append(process)
             process.start()
@@ -167,22 +180,19 @@ def cut_one_image(src, dst, reader, start_x, start_y, w, h):
 # def cut_per_thr(img, col_per_thr, roi_info, output, flag, lock):
 def cut_per_thr(img, output, start_x, start_y):
 
-    print("region shape is --> ", img.shape)
-
     x = y = 0
     while y + piece_size < img.shape[1]:
         while x + piece_size < img.shape[0]:
             region = img[x:x + piece_size, y:y + piece_size]
 
             # if not flag:
-                # print("output x y is ---> ", output, x, y)
+            # print("output x y is ---> ", output, x, y)
 
             fname = "{}/{}_{}".format(output, x + start_x, y + start_y)
-
-
+            cv2.imwrite("/tmp/tmpimg/" + fname + '.jpg', region)
             # cv2.imwrite(fname, region)
 
-            #label = GetLabel(roi_info, x, y)
+            # label = GetLabel(roi_info, x, y)
 
             region = cv2.imencode(".jpg", region)[1]
 
@@ -201,19 +211,24 @@ def cut_per_thr(img, output, start_x, start_y):
             with open('/tmp/233.txt', 'a+') as f:
                 f.write(fname + '\n')
             lock.release()
+            # print("/tmp/tmpimg/" + fname + '.jpg')
+            # time.sleep(300)
+
 
             x = x + piece_size
         y = y + piece_size
         x = 0
         # import time
         # time.sleep(3)
-#kfb_test_path = '/home/ftian/dl_solutions-kfb/data/test'
-#kfb_test_img_path = '/home/ftian/dl_solutions-kfb/data/test_img_overlap_image_size'
+
+
+# kfb_test_path = '/home/ftian/dl_solutions-kfb/data/test'
+# kfb_test_img_path = '/home/ftian/dl_solutions-kfb/data/test_img_overlap_image_size'
 
 
 def get_kfb_pieces(w, h):
     piece = 1
-    while w * h > 200000000:
+    while w * h > limit_size:
         h //= 2
         piece *= 2
     return piece
@@ -230,12 +245,12 @@ if __name__ == '__main__':
 
     procs = []
     # lock = Lock()
-    
+
     # for idx in range(len(src_dst)):
     #     data = src_dst[idx * set_num:(idx + 1) * set_num]
     #     print("len of data is --> ", len(data))
 
-    print ("len is --> ", len(src_dst))
+    print("len is --> ", len(src_dst))
     print(src_dst)
 
     # for num in range(len(src_dst)):
@@ -262,20 +277,41 @@ if __name__ == '__main__':
         w = r.getWidth()
         h = r.getHeight()
 
+        w_per_col = w // num_thr
+
         # image_count = 0
+        cp_st = time.time()
+        copy_file.copy_thr_num_file(src, '/tmp/tmpkfb', num_thr)
+        print("copy time elapsed is ", time.time() - cp_st)
 
-        cut_one_image(src, dst, r, 0, 0, w, h)
+        read_procs = []
 
-        print("col number is ", w // image_size)
-        print("row per thr is ", h // num_thr)
-        print("row per thr is ", h // num_thr)
+        for read_thr_idx in range(num_thr):
+            kfb_name = copy_file.get_kfb_filename(src, '/tmp/tmpkfb', read_thr_idx)
+            print("current reading kfb file at ", kfb_name)
 
-        pieces = get_kfb_pieces(w, h)
+            proc = Process(target=cut_one_image,
+                           args=(kfb_name, dst, 0, w_per_col * read_thr_idx, w_per_col, h, read_thr_idx))
+            read_procs.append(proc)
+            proc.start()
+        for proc in read_procs:
+            proc.join()
+
+        # cut_one_image(src, dst, 0, 0, w_per_col, h)
+        #
+        # print("col number is ", w // image_size)
+        # print("row per thr is ", h // num_thr)
+        # print("row per thr is ", h // num_thr)
+
+        pieces = get_kfb_pieces(w_per_col, h)
+
+        print("h pieces ", pieces)
         image_count = (h // pieces // image_size) * pieces \
-            * (w // num_thr // image_size) * num_thr
+            * (w // num_thr // num_thr_cut // image_size) * num_thr_cut * num_thr
 
         import redis
         from utils.helpers import settings
+
         DB = redis.StrictRedis(host=settings.REDIS_HOST,
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
 
@@ -283,8 +319,178 @@ if __name__ == '__main__':
         DB.lpush('count-kfb', (dst + '|' + str(image_count)))
         print("image cnt is -->", image_count)
         import datetime
-        print("Current time ", str(datetime.datetime.now()), " ---total time elapse of one kfb cut is ", time.time() - start_time)
+
+        print("Current time ", str(datetime.datetime.now()), " ---total time elapse of one kfb cut is ",
+              time.time() - start_time)
         time.sleep(3600)
+
+
+
+
+# def cut_one_image(src, dst, reader, start_x, start_y, w, h):
+#
+#     print("width and height --> ", w, h)
+#
+#     if w * h > 200000000:
+#         print("splited img")
+#         split_x = h // 2
+#         cut_one_image(src, dst, reader, start_x, start_y, w, split_x)
+#         cut_one_image(src, dst, reader, start_x + split_x, start_y, w, split_x)
+#
+#     else:
+#         col_per_thr = w // num_thr
+#         s = time.time()
+#         origin_img = reader.ReadRoi(start_x, start_y, w, h, scale)
+#
+#         roi_info = GetRoiInfo(src)
+#         print("read time elapse is ", time.time() - s)
+#         for thr_idx in range(num_thr):
+#             y = thr_idx * col_per_thr
+#             img = origin_img[:, y:y + col_per_thr]
+#
+#             # process = Process(target=cut_per_thr, args=(img, col_per_thr, roi_info, dst, args.only_label, lock))
+#             process = Process(target=cut_per_thr, args=(img, dst, start_x, y))
+#
+#             procs.append(process)
+#             process.start()
+#             print('start', thr_idx)
+#
+#         for process in procs:
+#             process.join()
+#             # for x in range(h // num_thr):
+#         print("one cut elapse is ---> ", time.time() - s)
+#     return
+#
+#
+# # def cut_per_thr(img, col_per_thr, roi_info, output, flag, lock):
+# def cut_per_thr(img, output, start_x, start_y):
+#
+#     print("region shape is --> ", img.shape)
+#
+#     x = y = 0
+#     while y + piece_size < img.shape[1]:
+#         while x + piece_size < img.shape[0]:
+#             region = img[x:x + piece_size, y:y + piece_size]
+#
+#             # if not flag:
+#                 # print("output x y is ---> ", output, x, y)
+#
+#             fname = "{}/{}_{}".format(output, x + start_x, y + start_y)
+#
+#
+#             # cv2.imwrite(fname, region)
+#
+#             #label = GetLabel(roi_info, x, y)
+#
+#             region = cv2.imencode(".jpg", region)[1]
+#
+#             streaming_image_producer.image_enqueue(fname, region)
+#
+#             # global image_count
+#             # image_count += 1
+#
+#             # lock.acquire()
+#             # try:
+#             #     with open('test_img_label.txt', 'a+') as f :
+#             #         f.write(fname + ' ' + str(label) + '\n')
+#             # finally:
+#             #     lock.release()
+#             lock.acquire()
+#             with open('/tmp/233.txt', 'a+') as f:
+#                 f.write(fname + '\n')
+#             lock.release()
+#
+#             x = x + piece_size
+#         y = y + piece_size
+#         x = 0
+#         # import time
+#         # time.sleep(3)
+# #kfb_test_path = '/home/ftian/dl_solutions-kfb/data/test'
+# #kfb_test_img_path = '/home/ftian/dl_solutions-kfb/data/test_img_overlap_image_size'
+#
+#
+#
+#
+#
+#
+# def get_kfb_pieces(w, h):
+#     piece = 1
+#     while w * h > 200000000:
+#         h //= 2
+#         piece *= 2
+#     return piece
+#
+#
+# if __name__ == '__main__':
+#
+#     args = parse_args()
+#     src_dst = []
+#     for root, _, files in os.walk(args.kfb_test_path):
+#         for file in files:
+#             if file.endswith(".kfb"):
+#                 src_dst.append([os.path.abspath(os.path.join(root, file)), os.path.abspath(args.kfb_test_img_path)])
+#
+#     procs = []
+#     # lock = Lock()
+#
+#     # for idx in range(len(src_dst)):
+#     #     data = src_dst[idx * set_num:(idx + 1) * set_num]
+#     #     print("len of data is --> ", len(data))
+#
+#     print ("len is --> ", len(src_dst))
+#     print(src_dst)
+#
+#     # for num in range(len(src_dst)):
+#     #     dest_dir = os.path.abspath(os.path.join(src_dst[num][1], os.path.splitext(os.path.basename(src_dst[num][0]))[0]))
+#     #     print (dest_dir)
+#     #     if not os.path.exists(dest_dir):
+#     #         print(dest_dir, "  not exist")
+#     #         os.makedirs(dest_dir)
+#
+#     # time.sleep(60)
+#     for num in range(len(src_dst)):
+#         start_time = time.time()
+#         src = src_dst[num][0]
+#         dst_root = src_dst[num][1]
+#
+#         dst = os.path.splitext(os.path.basename(src))[0]
+#         # dst = os.path.abspath(os.path.join(dst_root, os.path.splitext(os.path.basename(src))[0]))
+#         # if not os.path.exists(dst):
+#         #     os.makedirs(dst)
+#         # print("dst is --> ", dst)
+#         # time.sleep(60)
+#         r = reader()
+#         r.ReadInfo(src)
+#         w = r.getWidth()
+#         h = r.getHeight()
+#
+#         # image_count = 0
+#
+#         cut_one_image(src, dst, r, 0, 0, w, h)
+#
+#         print("col number is ", w // image_size)
+#         print("row per thr is ", h // num_thr)
+#         print("row per thr is ", h // num_thr)
+#
+#         pieces = get_kfb_pieces(w, h)
+#         image_count = (h // pieces // image_size) * pieces \
+#             * (w // num_thr // image_size) * num_thr
+#
+#         import redis
+#         from utils.helpers import settings
+#         DB = redis.StrictRedis(host=settings.REDIS_HOST,
+#                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
+#
+#         # dst is T20XX-XXXXX
+#         DB.lpush('count-kfb', (dst + '|' + str(image_count)))
+#         print("image cnt is -->", image_count)
+#         import datetime
+#         print("Current time ", str(datetime.datetime.now()), " ---total time elapse of one kfb cut is ", time.time() - start_time)
+#         time.sleep(3600)
+
+
+
+
 
 
 

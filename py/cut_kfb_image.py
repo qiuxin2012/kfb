@@ -197,10 +197,10 @@ def cut_per_thr(img, output, start_x, start_y):
             #         f.write(fname + ' ' + str(label) + '\n')
             # finally:
             #     lock.release()
-            # lock.acquire()
-            # with open('/tmp/233.txt', 'a+') as f:
-            #     f.write(fname + '\n')
-            # lock.release()
+            lock.acquire()
+            with open('/tmp/233.txt', 'a+') as f:
+                f.write(fname + '\n')
+            lock.release()
 
             x = x + piece_size
         y = y + piece_size
@@ -278,9 +278,12 @@ if __name__ == '__main__':
         from utils.helpers import settings
         DB = redis.StrictRedis(host=settings.REDIS_HOST,
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
-        DB.lpush('count-kfb', (src + '|' + str(image_count)))
+
+        # dst is T20XX-XXXXX
+        DB.lpush('count-kfb', (dst + '|' + str(image_count)))
         print("image cnt is -->", image_count)
-        print("Current time ", time.time(), " ---total time elapse of one kfb cut is ", time.time() - start_time)
+        import datetime
+        print("Current time ", str(datetime.datetime.now()), " ---total time elapse of one kfb cut is ", time.time() - start_time)
         time.sleep(3600)
 
 

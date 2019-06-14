@@ -16,19 +16,21 @@
 
 package com.intel.analytics.zoo.apps.kfbio
 
+import java.nio.charset.StandardCharsets
+
+import com.intel.analytics.bigdl.models.utils.ModelBroadcast
 import com.intel.analytics.bigdl.nn.Module
-
 import com.intel.analytics.bigdl.numeric.NumericFloat
-
+import com.intel.analytics.bigdl.tensor.Tensor
+import com.intel.analytics.bigdl.utils.File
+import com.intel.analytics.zoo.apps.kfbio.models.Resnet50
 import com.intel.analytics.zoo.common.NNContext
-
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.{DataFrame, SparkSession}
-
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
-
 import scopt.OptionParser
 import com.intel.analytics.zoo.apps.kfbio.utils.ImageProcessing
+import org.apache.spark.SparkConf
 
 
 case class RedisParams(modelPath: String = "",
@@ -36,7 +38,8 @@ case class RedisParams(modelPath: String = "",
                        defPath: String = "",
                        batchSize: Int = 4,
                        isInt8: Boolean = false,
-                       topN: Int = 5)
+                       topN: Int = 5,
+                       redis: String = "localhost:6379")
 
 object StreamingImageConsumer {
 
@@ -50,7 +53,6 @@ object StreamingImageConsumer {
     opt[String]('d', "defPath")
       .text("folder that used to store the streaming paths")
       .action((x, c) => c.copy(defPath = x))
-      .required()
     opt[String]('m', "model")
       .text("The path to the int8 quantized ResNet50 model snapshot")
       .action((v, p) => p.copy(modelPath = v))
@@ -70,6 +72,9 @@ object StreamingImageConsumer {
     opt[Boolean]("isInt8")
       .text("Is Int8 optimized model?")
       .action((v, p) => p.copy(isInt8 = v))
+    opt[String]("redis")
+      .text("redis host and port, default is localhost 6379")
+      .action((v, p) => p.copy(redis = v))
   }
 
   val logger: Logger = Logger.getLogger(getClass)
@@ -77,18 +82,33 @@ object StreamingImageConsumer {
   def main(args: Array[String]): Unit = {
 
     val param = parser.parse(args, RedisParams()).get
-    val sc = NNContext.initNNContext("Redis Streaming Test")
+    val newConf = NNContext.createSparkConf().setAppName("Redis Streaming Test")
+      .set("spark.redis.host", param.redis.split(":").head.trim)
+      .set("spark.redis.port", param.redis.split(":").last.trim)
+
+    val sc = NNContext.initNNContext(newConf)
 
     val batchSize = param.batchSize
-    val model = Module.loadCaffeModel[Float](param.defPath, param.modelPath)
+    val model = if (param.defPath != "") {
+      val loadedModel = Module.loadCaffeModel[Float](param.defPath, param.modelPath)
+      Resnet50.convert[Float](
+        Resnet50.caffe2zoo(loadedModel), Boolean.box(false)).evaluate()
+    } else {
+      val loadedModel = Module.loadModule[Float](param.modelPath).quantize()
+      loadedModel.evaluate()
+    }
+    val bcModel = ModelBroadcast[Float]().broadcast(sc, model)
+
     val outputPath = param.outputPath
 
+    logger.info(s"connecting to redis ${param.redis}")
     val spark = SparkSession
       .builder
-      .master("local[*]")
-      .config("spark.redis.host", "localhost")
-      .config("spark.redis.port", "6379")
+      .master(sc.master)
+      .config("spark.redis.host", param.redis.split(":").head.trim)
+      .config("spark.redis.port", param.redis.split(":").last.trim)
       .getOrCreate()
+    logger.info(s"connected to redis ${spark.conf.get("spark.redis.host")}:${spark.conf.get("spark.redis.port")}")
 
     import spark.sqlContext.implicits._
     val images = spark
@@ -126,24 +146,36 @@ object StreamingImageConsumer {
           //        logger.info(s"process ended")
 
           //        val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
-          val recDF = batchImage.map {
-            b => {
-              val output = model.forward(b._2.resize(1, 3, 224, 224))
-              val tensor = output.toTensor[Float]
-
-//              logger.info(b._1, tensor.valueAt(1), tensor.valueAt(2))
-              (b._1, tensor.valueAt(1).toString + "|" + tensor.valueAt(2).toString)
+          val result = batchImage.mapPartitions { imageTensor =>
+            val localModel = bcModel.value()
+            val inputTensor = Tensor[Float](batchSize, 3, 224, 224)
+            imageTensor.grouped(batchSize).flatMap { batch =>
+              val size = batch.size
+              val startCopy = System.nanoTime()
+              (0 until size).toParArray.foreach { i =>
+                inputTensor.select(1, i + 1).copy(batch(i)._2)
+              }
+              logger.info(s"Copy elapsed ${(System.nanoTime() - startCopy) / 1e9} s")
+              val start = System.nanoTime()
+              val output = localModel.forward(inputTensor).toTensor[Float]
+              val end = System.nanoTime()
+              logger.info(s"elapsed ${(end - start) / 1e9} s")
+              (0 until size).map { i =>
+                (batch(i)._1.split("\\/")(0),
+                  batch(i)._1 + "|" + output.valueAt(i + 1, 1) + "|" +
+                  output.valueAt(i + 1, 2))
+              }
             }
-          }.toDF("path", "res")
+          }.collect()
 
-          logger.info("output Path is " + outputPath)
-          if (outputPath != null) {
-            logger.info("start writing file")
-            recDF.write.partitionBy("path").text(outputPath)
+          result.groupBy(_._1).foreach{ results =>
+            File.saveBytes((results._2.map(_._2).mkString("\n") + "\n").getBytes(StandardCharsets.UTF_8),
+            s"$outputPath/${results._1}/part_${batchId}")
           }
-          logger.info(recDF.count())
 
-          logger.info(s"predict ended")
+
+
+          logger.info(s"predict ended $batchId")
           //        imageTensor.grouped(batchSize).flatMap { batch =>
           //          val size = batchImage
           //          (0 until size).foreach { i =>

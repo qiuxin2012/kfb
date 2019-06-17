@@ -20,3 +20,5 @@ CLIENT_SLEEP = 0.25
 # Redis Streaming
 IMAGE_STREAMING = "image_stream"
 BLOCK = 1000
+
+COPY_KFB_DIR = "/mnt/nvm/tmpkfb"

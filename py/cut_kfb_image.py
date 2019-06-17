@@ -7,11 +7,12 @@ import sys
 import time
 
 from utils import streaming_image_producer, copy_file
+from utils import settings
 
 
 from multiprocessing import cpu_count
 from multiprocessing import Process, Lock
-num_thr = 4
+num_thr = 8
 num_thr_cut = 1
 # try:
 #     num_thr = os.environ["OMP_NUM_THREADS"]
@@ -156,24 +157,24 @@ def cut_one_image(src, dst, start_x, start_y, w, h, thr_idx):
         origin_img = rr.ReadRoi(start_x, start_y, w, h, scale)
 
         roi_info = GetRoiInfo(src)
-        print("read time elapse is ", time.time() - s)
+        # print("read time elapse is ", time.time() - s)
         for thr_idx in range(num_thr_cut):
             y = thr_idx * col_per_thr
 
             img = origin_img[:, y:y + col_per_thr]
-            print("origin shape is --> ", origin_img.shape)
-            print("region shape is --> ", img.shape)
+            # print("origin shape is --> ", origin_img.shape)
+            # print("region shape is --> ", img.shape)
             # process = Process(target=cut_per_thr, args=(img, col_per_thr, roi_info, dst, args.only_label, lock))
             process = Process(target=cut_per_thr, args=(img, dst, start_x, start_y + y))
 
             procs.append(process)
             process.start()
-            print('start', thr_idx)
+            # print('start', thr_idx)
 
         for process in procs:
             process.join()
             # for x in range(h // num_thr):
-        print("one cut elapse is ---> ", time.time() - s)
+        # print("one cut elapse is ---> ", time.time() - s)
     return
 
 
@@ -189,7 +190,7 @@ def cut_per_thr(img, output, start_x, start_y):
             # print("output x y is ---> ", output, x, y)
 
             fname = "{}/{}_{}".format(output, x + start_x, y + start_y)
-            cv2.imwrite("/tmp/tmpimg/" + fname + '.jpg', region)
+            # cv2.imwrite("/tmp/tmpimg/" + fname + '.jpg', region)
             # cv2.imwrite(fname, region)
 
             # label = GetLabel(roi_info, x, y)
@@ -207,10 +208,11 @@ def cut_per_thr(img, output, start_x, start_y):
             #         f.write(fname + ' ' + str(label) + '\n')
             # finally:
             #     lock.release()
-            lock.acquire()
-            with open('/tmp/233.txt', 'a+') as f:
-                f.write(fname + '\n')
-            lock.release()
+            # lock.acquire()
+            # path = "/tmp/tmptxt/{}.txt".format(dst)
+            # with open(path, 'a+') as f:
+            #     f.write(fname + '\n')
+            # lock.release()
             # print("/tmp/tmpimg/" + fname + '.jpg')
             # time.sleep(300)
 
@@ -264,7 +266,7 @@ if __name__ == '__main__':
     for num in range(len(src_dst)):
         start_time = time.time()
         src = src_dst[num][0]
-        dst_root = src_dst[num][1]
+        # dst_root = src_dst[num][1] use to store image, not use anymore
 
         dst = os.path.splitext(os.path.basename(src))[0]
         # dst = os.path.abspath(os.path.join(dst_root, os.path.splitext(os.path.basename(src))[0]))
@@ -277,17 +279,25 @@ if __name__ == '__main__':
         w = r.getWidth()
         h = r.getHeight()
 
+        print(src, "  width -> ", w, " height ->", h)
+
         w_per_col = w // num_thr
 
         # image_count = 0
         cp_st = time.time()
-        copy_file.copy_thr_num_file(src, '/tmp/tmpkfb', num_thr)
+
+        dst_dir = settings.COPY_KFB_DIR
+        if not os.path.exists(dst_dir):
+            print("directory to store kfb copies must exist")
+            exit(1)
+        dst_dir = os.path.join(settings.COPY_KFB_DIR, os.path.basename(src).split('.')[0])
+        copy_file.copy_thr_num_file(src, dst_dir, num_thr)
         print("copy time elapsed is ", time.time() - cp_st)
 
         read_procs = []
 
         for read_thr_idx in range(num_thr):
-            kfb_name = copy_file.get_kfb_filename(src, '/tmp/tmpkfb', read_thr_idx)
+            kfb_name = copy_file.get_kfb_filename(src, dst_dir, read_thr_idx)
             print("current reading kfb file at ", kfb_name)
 
             proc = Process(target=cut_one_image,
@@ -305,24 +315,23 @@ if __name__ == '__main__':
 
         pieces = get_kfb_pieces(w_per_col, h)
 
-        print("h pieces ", pieces)
+        print("h pieces (cut into rows) ", pieces)
         image_count = (h // pieces // image_size) * pieces \
             * (w // num_thr // num_thr_cut // image_size) * num_thr_cut * num_thr
 
         import redis
-        from utils.helpers import settings
 
         DB = redis.StrictRedis(host=settings.REDIS_HOST,
                                port=settings.REDIS_PORT, db=settings.REDIS_DB)
 
         # dst is T20XX-XXXXX
-        DB.lpush('count-kfb', (dst + '|' + str(image_count)))
+        DB.rpush('count-kfb', (dst + '|' + str(image_count)))
         print("image cnt is -->", image_count)
         import datetime
 
         print("Current time ", str(datetime.datetime.now()), " ---total time elapse of one kfb cut is ",
               time.time() - start_time)
-        time.sleep(3600)
+        # time.sleep(300)
 
 
 

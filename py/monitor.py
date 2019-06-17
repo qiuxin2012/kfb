@@ -12,7 +12,7 @@ kfb_pos_ratio = 0.01
 def prob_to_pos(line):
     # print(rec)
     # assert len(rec) == 3
-    print(line)
+    # print(line)
     rec = line.split("|")
     prob = float(rec[1])
     assert len(rec) == 3
@@ -41,15 +41,30 @@ def get_result(rec):
     :return: positive 1, negative 0
     '''
     res = rec.map(prob_to_pos).reduce(count_pos)
-    ratio = res[1] / res[2]
+    ratio = float(res[1]) / float(res[2])
     print("positive pieces ", res[1], "  total pieces ", res[2])
 
     kfb_name = res[0].split("/")[0]
+
     if ratio > kfb_pos_ratio:
-        print(kfb_name, " ratio is ", ratio, " result is positive")
+        ans = kfb_name + " ratio is " + str(ratio) + " result is positive"
+        print(ans)
     else:
-        print(kfb_name, " ratio is ", ratio, " result is negative")
+        ans = kfb_name + " ratio is " + str(ratio) + " result is negative"
+        print(ans)
+    with open('/tmp/233.txt', 'a+') as f:
+        f.write(ans + '\n')
     return
+
+
+from py4j.protocol import Py4JJavaError
+def path_exist(path):
+    try:
+        rdd = sc.textFile(path)
+        rdd.take(1)
+        return True
+    except Py4JJavaError as e:
+        return False
 
 
 if __name__ == "__main__":
@@ -77,21 +92,42 @@ if __name__ == "__main__":
 
     DB = redis.StrictRedis(host=settings.REDIS_HOST,
                            port=settings.REDIS_PORT, db=settings.REDIS_DB)
-
+    DB.flushall()
     # DB.lpush('count-kfb', ("dfsdf|adff"))
+    last_name = None  # handle dead record
+    cnt = 0
     while 1:
         while DB.llen('count-kfb') > 0:
-
+            time.sleep(5)
             kv = DB.lpop('count-kfb').decode().split("|")
 
             # print(rec.decode())
             fname, total_count = kv[0], kv[1]
-            DB.rpush('count-kfb', (fname + "|" + total_count))
+
+            if last_name == fname:
+                cnt += 1
+                if cnt > 10:
+                    continue
+            else:
+                cnt = 0
+
+            DB.lpush('count-kfb', (fname + "|" + total_count))
             total_count = int(total_count)
 
             dir_path = os.path.join(file_path, fname)
             print("file name is -> ", fname, "total_count is -> ", total_count)
             print("hdfs dir path is -> ", dir_path)
+            # fs = sc._jvm.org.apache.hadoop.fs.FileSystem.get(sc._jsc.hadoopConfiguration())
+            #
+            # if not fs.exists(sc._jvm.org.apache.hadoop.fs.Path(dir_path)):
+            #     print("invalid redis list record, skipped")
+            #     DB.rpop('count-kfb')
+            #     continue
+            if not path_exist(dir_path):
+                # print("invalid redis list record, skipped")
+                # DB.rpop('count-kfb')
+                continue
+
             cnt_rdd = sc.textFile(dir_path)
             current_count = cnt_rdd.count()
             print("current cnt is -> ", current_count, "   total cnt is -> ", total_count)
@@ -100,13 +136,11 @@ if __name__ == "__main__":
                 btime = time.time()
                 get_result(cnt_rdd)
                 print("reduce time elapsed ", time.time() - btime)
-                DB.rpop('count-kfb')
+                DB.lpop('count-kfb')
             else:
                 print("write not ends")
                 print(type(total_count), type(current_count))
 
-
-            time.sleep(5)
         print("queue is empty")
-        time.sleep(60)
+        time.sleep(10)
 

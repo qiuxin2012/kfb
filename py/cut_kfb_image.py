@@ -145,7 +145,7 @@ def cut_one_image(src, dst, start_x, start_y, w, h, thr_idx):
     start_xx = start_x
 
     if w * h > limit_size:
-        print("splited img")
+        # print("splited img")
         split_x = h // 2
         cut_one_image(src, dst, start_x, start_y, w, split_x, thr_idx)
         cut_one_image(src, dst, start_x + split_x, start_y, w, split_x,thr_idx)
@@ -216,9 +216,10 @@ def cut_per_thr(img, output, start_x, start_y):
             # print("/tmp/tmpimg/" + fname + '.jpg')
             # time.sleep(300)
 
-
             x = x + piece_size
         y = y + piece_size
+        #     x = x + int(piece_size / 2)
+        # y = y + int(piece_size / 2)
         x = 0
         # import time
         # time.sleep(3)
@@ -319,6 +320,7 @@ if __name__ == '__main__':
         image_count = (h // pieces // image_size) * pieces \
             * (w // num_thr // num_thr_cut // image_size) * num_thr_cut * num_thr
 
+        # image_count *= 4
         import redis
 
         DB = redis.StrictRedis(host=settings.REDIS_HOST,

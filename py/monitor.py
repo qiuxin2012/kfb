@@ -98,7 +98,7 @@ if __name__ == "__main__":
     cnt = 0
     while 1:
         while DB.llen('count-kfb') > 0:
-            time.sleep(5)
+            time.sleep(10)
             kv = DB.lpop('count-kfb').decode().split("|")
 
             # print(rec.decode())
@@ -106,10 +106,12 @@ if __name__ == "__main__":
 
             if last_name == fname:
                 cnt += 1
-                if cnt > 10:
+                if cnt > 30:
+                    print("detected no file written to hdfs through 300 secs, skipped")
                     continue
             else:
-                cnt = 0
+                cnt = 1
+            last_name = fname
 
             DB.lpush('count-kfb', (fname + "|" + total_count))
             total_count = int(total_count)
@@ -131,7 +133,8 @@ if __name__ == "__main__":
             cnt_rdd = sc.textFile(dir_path)
             current_count = cnt_rdd.count()
             print("current cnt is -> ", current_count, "   total cnt is -> ", total_count)
-            if total_count == current_count:
+            # if total_count == current_count:
+            if 0.5 * current_count < total_count < 2 * current_count:
                 # reduce to get the result
                 btime = time.time()
                 get_result(cnt_rdd)
@@ -142,5 +145,5 @@ if __name__ == "__main__":
                 print(type(total_count), type(current_count))
 
         print("queue is empty")
-        time.sleep(10)
+        time.sleep(30)
 

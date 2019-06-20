@@ -134,7 +134,7 @@ if __name__ == "__main__":
             current_count = cnt_rdd.count()
             print("current cnt is -> ", current_count, "   total cnt is -> ", total_count)
             # if total_count == current_count:
-            if 0.5 * current_count < total_count < 2 * current_count:
+            if current_count == total_count:
                 # reduce to get the result
                 btime = time.time()
                 get_result(cnt_rdd)

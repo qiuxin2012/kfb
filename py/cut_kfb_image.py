@@ -12,7 +12,7 @@ from utils import settings
 
 from multiprocessing import cpu_count
 from multiprocessing import Process, Lock
-num_thr = 8
+num_thr = 4
 num_thr_cut = 1
 # try:
 #     num_thr = os.environ["OMP_NUM_THREADS"]
@@ -154,7 +154,7 @@ def cut_one_image(src, dst, start_x, start_y, w, h, thr_idx):
         print("start x, y  --> ", start_x, start_y)
         col_per_thr = w // num_thr_cut
         s = time.time()
-        origin_img = rr.ReadRoi(start_x, start_y, w, h, scale)
+        origin_img = rr.ReadRoi(start_y, start_x, w, h, scale)
 
         roi_info = GetRoiInfo(src)
         # print("read time elapse is ", time.time() - s)
@@ -182,8 +182,19 @@ def cut_one_image(src, dst, start_x, start_y, w, h, thr_idx):
 def cut_per_thr(img, output, start_x, start_y):
 
     x = y = 0
-    while y + piece_size < img.shape[1]:
-        while x + piece_size < img.shape[0]:
+    stride = piece_size
+    # stride = int(piece_size / 2)
+    # print(img.shape[0], img.shape[1])
+    # ddd = "/tmp/tmpimg/bigimg/" + output
+    # if not os.path.exists(ddd):
+    #     os.mkdir(ddd)
+    # dddd = ddd + '/' + str(start_x) + '_' + str(start_y) + '.jpg'
+    #
+    # print("write to ", dddd)
+    # cv2.imwrite(dddd, img)
+
+    while y + stride < img.shape[1]:
+        while x + stride < img.shape[0]:
             region = img[x:x + piece_size, y:y + piece_size]
 
             # if not flag:
@@ -216,8 +227,8 @@ def cut_per_thr(img, output, start_x, start_y):
             # print("/tmp/tmpimg/" + fname + '.jpg')
             # time.sleep(300)
 
-            x = x + piece_size
-        y = y + piece_size
+            x = x + stride
+        y = y + stride
         #     x = x + int(piece_size / 2)
         # y = y + int(piece_size / 2)
         x = 0

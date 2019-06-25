@@ -126,6 +126,16 @@ class ImageProcessing {
     processedTensor
   }
 
+  def preprocessBytes(imageBytes: Array[Byte]): Tensor[Float] = {
+    val mat = this.byteArrayToMat(imageBytes)
+    val cropedMat = this.centerCrop(mat, 224, 224, false)
+    val tensor = this.matToNCHWAndRGBTensor(cropedMat)
+    val processedTensor = this.channelScaledNormalize(tensor, 104, 117, 123, 0.0078125)
+    mat.release()
+    cropedMat.release()
+    processedTensor
+  }
+
 }
 
 object ImageProcessing {

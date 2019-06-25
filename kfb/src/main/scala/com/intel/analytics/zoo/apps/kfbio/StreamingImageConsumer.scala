@@ -88,6 +88,7 @@ object StreamingImageConsumer {
       .set("spark.redis.port", param.redis.split(":").last.trim)
 
     val sc = NNContext.initNNContext(newConf)
+    val coreNumber = EngineRef.getCoreNumber()
 
     val batchSize = param.batchSize
     val model = if (param.defPath != "") {
@@ -138,13 +139,18 @@ object StreamingImageConsumer {
         logger.info(s"num of partition: ${batchDF.rdd.partitions.size}")
         logger.info(s"${batchDF.rdd.partitions.map(_.index).mkString("  ")}")
 
-        val batchImage = batchDF.rdd.map { image =>
-          val bytes = java.util
-            .Base64.getDecoder.decode(image.getAs[String]("image"))
-
-          val uri = image.getAs[String]("path")
-
-          (uri, ImageProcessing.preprocessBytes(bytes))
+        val batchImage = batchDF.rdd.map{image =>
+          (image.getAs[String]("path"), java.util
+            .Base64.getDecoder.decode(image.getAs[String]("image")))
+        }.mapPartitions{bytes =>
+          val preProcessing = Array.tabulate(coreNumber)(_ =>
+            new ImageProcessing()
+          )
+          bytes.grouped(coreNumber).flatMap{batchPath =>
+            batchPath.indices.toParArray.map{i =>
+              (batchPath(i)._1, preProcessing(i).preprocessBytes(batchPath(i)._2))
+            }
+          }
         }
 
         val result = ZippedPartitionsWithLocalityRDD(batchImage, cachedModel){ (imageTensor, modelIter) =>
